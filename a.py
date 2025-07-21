@@ -12,6 +12,13 @@ import requests
 from concurrent.futures import ThreadPoolExecutor
 from urllib3.exceptions import HTTPError
 
+
+from threading import Lock
+
+success_count = 0
+success_limit = 100
+success_lock = Lock()
+
 # Logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -146,6 +153,9 @@ def register_domain(private_key: str, name: str, task_index: int, proxy: str = N
             tx_hash = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
             w3.eth.wait_for_transaction_receipt(tx_hash)
             logger.info(f"✅ [Tugas #{task_index}] {name}.phrs berhasil didaftarkan")
+            global success_count
+            with success_lock:
+                success_count += 1
             break
 
         except Exception as err:
@@ -179,6 +189,10 @@ def main():
         clear_failed_file()
         tasks = []
         for i, domain_name in enumerate(domain_list):
+            with success_lock:
+                if success_count >= success_limit:
+                    logger.info(f"🛑 Batas minting {success_limit} tercapai. Menghentikan tugas.")
+                    break
             pk_untuk_tugas_ini = pk_list[i % len(pk_list)]
             tasks.append((pk_untuk_tugas_ini, domain_name, i + 1))
 
@@ -188,6 +202,10 @@ def main():
                                        random.choice(proxy_list) if proxy_list else None)
                        for pk, name, task_idx in tasks]
             for future in futures:
+                with success_lock:
+                    if success_count >= success_limit:
+                        logger.info(f"🛑 Batas minting {success_limit} tercapai selama eksekusi. Menghentikan.")
+                        break
                 future.result()
 
         domain_list = load_failed_domains()
